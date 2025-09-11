@@ -16,6 +16,7 @@ module Staging.Direct where
 import Control.Monad.Free
 import Effects.Algebra
 import Effects.CPSolve
+import Effects.Core ((:+:) (..))
 import Effects.NonDet
 import Effects.Solver
 import Eval (SearchTree)
@@ -24,7 +25,7 @@ import Language.Haskell.TH
 import Queens ((/\))
 import Queues
 import Solver (Solver (..))
-import Staging.Old.Direct (rec2)
+import Staging.Old.Direct (rec, rec2)
 import System.Random
 import Transformers (flipT)
 import Prelude hiding (fail)
@@ -152,6 +153,15 @@ randS seed =
         )
     }
 
+(<||) :: (Rep (f a) -> Rep b) -> (Rep (g a) -> Rep b) -> Rep ((f :+: g) a) -> Rep b
+(<||) algF algG s =
+  [||
+  case $$s of
+    (Inl l) -> $$(algF [||l||])
+    (Inr r) -> $$(algG [||r||])
+  ||]
+infixr 6 <||
+
 stage ::
   forall solver q ts es a.
   ( Solver solver
@@ -162,39 +172,71 @@ stage ::
   Code Q (q -> SearchTree solver a -> solver [a])
 stage (SearchTransformer tsInit esInit leftTs rightTs solEs nextState) =
   rec2
-    ( \(go, continue) ->
-        [||
+    ( \(para, continue) ->
         let
-          -- algCSP :: CPSolve solver (ts -> es -> q -> solver [a]) -> ts -> es -> q -> solver [a]
-          algCSP cps ts es q = case cps of
-            (Add' c k) -> do
-              success <- addCons c
-              if success then k ts es q else $$continue es q
-            (NewVar' k) -> do
-              var <- newvar
-              (k var) ts es q
-            (Dynamic' d) -> do
-              k <- d
-              k ts es q
-          -- algNonDet ::
-          --   NonDet (SearchTree solver a, ts -> es -> q -> solver [a]) ->
-          --   ts -> es -> q -> solver [a]
-          algNonDet nd ts es q = case nd of
-            (Try' (l, _) (r, _)) -> do
-              now <- mark
-              tsL <- $$(unST leftTs $ [||ts||])
-              tsR <- $$(unST rightTs $ [||ts||])
-              $$continue es (pushQ (now, tsL, l) $ pushQ (now, tsR, r) q)
-            Fail' -> $$continue es q
-          -- algSolver :: SolverE solver (ts -> es -> q -> solver [a]) -> ts -> es -> q -> solver [a]
-          algSolver (RunSolver' s) ts es q = s >>= \k -> k ts es q
-          -- genCSP :: a -> ts -> es -> q -> solver [a]
-          genCSP a _ es q = do
-            es' <- $$(unST solEs $ [||es||])
-            (a :) <$> $$continue es' q
+          algCSP ::
+            Rep (CPSolve solver (SearchTree solver a, ts -> es -> q -> solver [a])) ->
+            Rep (ts -> es -> q -> solver [a])
+          algCSP term =
+            [||
+            \ts es q ->
+              case $$term of
+                (Add' c (_, k)) -> do
+                  success <- addCons c
+                  if success then k ts es q else $$continue es q
+                (NewVar' k) -> do
+                  var <- newvar
+                  let (_, k') = k var
+                  k' ts es q
+                (Dynamic' d) -> do
+                  (_, k) <- d
+                  k ts es q
+            ||]
+
+          algNonDet ::
+            Rep
+              (NonDet (SearchTree solver a, ts -> es -> q -> solver [a])) ->
+            Rep (ts -> es -> q -> solver [a])
+          algNonDet term =
+            [||
+            \ts es q ->
+              case $$term of
+                Fail' -> $$continue es q
+                Try' (l, _) (r, _) -> do
+                  now <- mark
+                  tsL <- $$(unST leftTs $ [||ts||])
+                  tsR <- $$(unST rightTs $ [||ts||])
+                  $$continue es (pushQ (now, tsL, l) $ pushQ (now, tsR, r) q)
+            ||]
+
+          algSolver ::
+            Rep (SolverE solver (SearchTree solver a, ts -> es -> q -> solver [a])) ->
+            Rep (ts -> es -> q -> solver [a])
+          algSolver term =
+            [||
+            \ts es q ->
+              let (RunSolver' s) = $$term
+               in do
+                    (_, k) <- s
+                    k ts es q
+            ||]
+
+          genCSP :: Rep a -> Rep (ts -> es -> q -> solver [a])
+          genCSP a =
+            [||
+            \_ es q -> do
+              es' <- $$(unST solEs $ [||es||])
+              (($$a) :) <$> $$continue es' q
+            ||]
+
+          alg = algCSP <|| algNonDet <|| algSolver
          in
-          handlePara (liftPara algCSP <| algNonDet <| liftPara algSolver) genCSP
-        ||]
+          [||
+          \tree ->
+            case tree of
+              Pure a -> $$(genCSP [|| a ||])
+              Free op -> $$(alg [||(\term -> (term, $$para term)) <$> op||])
+          ||]
     )
     ( \(go, _) ->
         [||

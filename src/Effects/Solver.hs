@@ -17,6 +17,8 @@ module Effects.Solver where
 import Control.Monad.Free (Free (..))
 import Effects.Core (Sub(..), project, inject)
 import Solver(Solver(..))
+import Effects.Algebra
+import Control.Monad (join)
 
 data SolverE solver a where 
   RunSolver' :: solver a -> SolverE solver a 
@@ -36,3 +38,9 @@ solve a = solve' $ pure <$> a
 runSolver :: Solver solver => Free (SolverE solver) a -> solver a 
 runSolver (Pure a) = pure a
 runSolver (Solver a) = a >>= runSolver
+
+runSolverAlg :: Solver solver => Free (SolverE solver) a -> solver a 
+runSolverAlg = handle algSolver pure
+
+algSolver :: (Solver solver) => SolverE solver (solver a) -> solver a
+algSolver (RunSolver' s) = join s

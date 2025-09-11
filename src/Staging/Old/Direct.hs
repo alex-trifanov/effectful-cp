@@ -209,3 +209,6 @@ rec2 :: Mk2 a b a -> Mk2 a b b -> Mk2 a b c -> Code Q c
 rec2 mk1 mk2 mkk = [|| let f = $$(mk1 ([|| f ||], [|| g ||]))
                            g = $$(mk2 ([|| f ||], [|| g ||]))
                           in $$(mkk ([|| f ||], [|| g ||])) ||]
+
+rec :: Mk1 a a -> Code Q a 
+rec mk1 = [|| let f = $$(mk1 [|| f ||]) in f ||]

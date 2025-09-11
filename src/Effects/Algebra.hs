@@ -22,8 +22,6 @@ handlePara alg gen (Free op) = alg $ (\fa -> (fa, handlePara alg gen fa)) <$> op
 (<|) _algF algG (Inr s) = algG s
 infixr 6 <|
 
-
-
 liftPara :: Functor f => (f b -> b) -> (f (c, b) -> b)
 liftPara alg = alg . (snd <$>)
 

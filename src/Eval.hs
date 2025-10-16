@@ -13,7 +13,7 @@ import Control.Monad.Free (Free (..))
 import Effects.Algebra
 import Effects.CPSolve (CPSolve (..), pattern Add, pattern Dynamic, pattern NewVar)
 import Effects.Core ((:+:) (..), pattern Other2)
-import Effects.NonDet (NonDet (..), pattern Fail, pattern (:|:))
+import Effects.NonDet (NonDet (..), fail, pattern Fail, pattern (:|:))
 import Effects.Solver (SolverE, runSolver, solve)
 import Effects.Transformer (TransformerE (..), initT, leftS, nextT, rightS, solT)
 import FD.OvertonFD (OvertonFD)
@@ -31,6 +31,13 @@ dfs ::
   SearchTree solver a ->
   [a]
 dfs trans model = run . runSolver . trans . (flip eval []) $ model
+
+dfs2 ::
+  (Solver solver) =>
+  (TransformerTree ts es solver a [a] -> Free (SolverE solver) [a]) ->
+  SearchTree solver a ->
+  [a]
+dfs2 trans model = run . runSolver . trans . (flip eval2 []) $ model
 
 dfsO ::
   (Solver solver) =>
@@ -80,6 +87,56 @@ eval model queue = initT (\ts es -> go model ts es queue)
          in do
               solve $ goto now
               nextT tree ts es (\tree' ts' es' -> go tree' ts' es' q')
+
+eval2 ::
+  forall solver q a es ts.
+  (Solver solver, Queue q, Elem q ~ (Label solver, ts, SearchTree solver a)) =>
+  SearchTree solver a ->
+  q ->
+  TransformerTree ts es solver a [a]
+eval2 model queue = initT (\ts es -> go model ts es queue)
+ where
+  go :: SearchTree solver a -> ts -> es -> q -> TransformerTree ts es solver a [a]
+  go = handle2 (algCP <|$ algNonDet <|$ conCSP) genCSP
+
+  genCSP :: (SearchTree solver a -> ts -> es -> q -> TransformerTree ts es solver a [a]) ->
+    a -> ts -> es -> q -> TransformerTree ts es solver a [a]
+  genCSP jumpTo a ts es q = solT es (\es' -> (a :) <$> jumpTo fail ts es' q)
+
+  algCP jumpTo (Add' c (_, k)) ts es q = do
+    success <- solve $ addCons c
+    if success then k ts es q else jumpTo fail ts es q
+  algCP _ (NewVar' k) ts es q = do
+    var <- solve $ newvar
+    let (_, k') = k var
+    k' ts es q
+  algCP _ (Dynamic' d) ts es q = do
+    (_, k) <- solve $ d
+    k ts es q
+
+  algNonDet ::
+    (SearchTree solver a -> ts -> es -> q -> TransformerTree ts es solver a [a]) ->
+    NonDet (SearchTree solver a, ts -> es -> q -> TransformerTree ts es solver a [a]) ->
+    ts ->
+    es ->
+    q ->
+    TransformerTree ts es solver a [a]
+  algNonDet jumpTo (Try' (l, _) (r, _)) ts es q = do
+    now <- solve mark
+    ls <- leftS ts
+    rs <- rightS ts
+    let q' = pushQ (now, ls, l) $ pushQ (now, rs, r) $ q
+    jumpTo fail ts es q'
+  algNonDet jumpTo (Fail') _ es q =
+    if nullQ q
+      then pure []
+      else
+        let ((now, ts, tree), q') = popQ q
+         in do
+              solve $ goto now
+              nextT tree ts es $ (\tree' ts' es' -> jumpTo tree' ts' es' q')
+
+  conCSP _ op q ts es = Free . Inr $ (\f -> f q ts es) <$> (snd <$> op)
 
 evalQ ::
   forall solver q a es ts.

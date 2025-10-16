@@ -25,7 +25,7 @@ import Language.Haskell.TH
 import Queens ((/\))
 import Queues
 import Solver (Solver (..))
-import Staging.Old.Direct (rec, rec2)
+import Staging.Old.Direct (rec2)
 import System.Random
 import Transformers (flipT)
 import Prelude hiding (fail)
@@ -162,6 +162,99 @@ randS seed =
   ||]
 infixr 6 <||
 
+(<|$|) :: (c -> Rep (f a) -> Rep b) -> (c -> Rep (g a) -> Rep b) -> c -> Rep ((f :+: g) a) -> Rep b
+(<|$|) algF algG c s =
+  [||
+  case $$s of
+    (Inl l) -> $$(algF c [||l||])
+    (Inr r) -> $$(algG c [||r||])
+  ||]
+infixr 6 <|$|
+
+mkRec :: (Rep a -> Rep a) -> Rep a
+mkRec r = [||let f = $$(r [||f||]) in f||]
+
+handle2S ::
+  (Functor f) =>
+  ((Rep (Free f a -> b)) -> Rep (f (Free f a, b)) -> Rep b) ->
+  ((Rep (Free f a -> b)) -> Rep a -> Rep b) ->
+  Rep (Free f a -> b)
+handle2S alg gen = mkRec $ \self ->
+  [||
+  \case
+    Pure x -> $$(gen self [||x||])
+    Free op -> $$(alg self [||(\fa -> (fa, $$self fa)) <$> op||])
+  ||]
+
+stage2 ::
+  forall solver q ts es a.
+  ( Solver solver
+  , Queue q
+  , Elem q ~ (Label solver, ts, SearchTree solver a)
+  ) =>
+  SearchTransformer ts es solver a ->
+  Code Q (q -> SearchTree solver a -> solver [a])
+stage2 (SearchTransformer tsInit esInit leftTs rightTs solEs nextState) =
+  [||\q model -> $$go model $$tsInit $$esInit q||]
+ where
+  go :: Rep (SearchTree solver a -> ts -> es -> q -> solver [a])
+  go = handle2S (algCSP <|$| algNonDet <|$| algSolv) genCSP
+
+  genCSP jumpTo a =
+    [||
+    \ts es q -> do
+      es' <- $$(unST solEs $ [||es||])
+      (($$a) :) <$> $$jumpTo fail ts es' q
+    ||]
+
+  algCSP jumpTo term =
+    [||
+    \ts es q ->
+      case $$term of
+        (Add' c (_, k)) -> do
+          success <- addCons c
+          if success then k ts es q else $$jumpTo fail ts es q
+        (NewVar' k) -> do
+          var <- newvar
+          let (_, k') = k var
+          k' ts es q
+        (Dynamic' d) -> do
+          (_, k) <- d
+          k ts es q
+    ||]
+
+  algNonDet jumpTo term =
+    [||
+    \ts es q ->
+      case $$term of
+        Fail' ->
+          if nullQ q
+            then pure []
+            else
+              let ((label, ts, tree), q') = popQ q
+               in $$( let (ts', es', tree') = unNT nextState [||ts||] [||es||] [||tree||]
+                       in [||$$jumpTo ((solve $ goto label) >> $$tree') $$ts' $$es' q'||]
+                    )
+
+        Try' (l, _) (r, _) -> do
+          now <- mark
+          tsL <- $$(unST leftTs $ [||ts||])
+          tsR <- $$(unST rightTs $ [||ts||])
+          $$jumpTo fail ts es (pushQ (now, tsL, l) $ pushQ (now, tsR, r) q)
+    ||]
+  algSolv ::
+    Rep (SearchTree solver a -> ts -> es -> q -> solver [a]) ->
+    Rep (SolverE solver (SearchTree solver a, ts -> es -> q -> solver [a])) ->
+    Rep (ts -> es -> q -> solver [a])
+  algSolv _ term =
+    [||
+    \ts es q ->
+      let (RunSolver' s) = $$term
+       in do
+            (_, k) <- s
+            k ts es q
+    ||]
+
 stage ::
   forall solver q ts es a.
   ( Solver solver
@@ -234,7 +327,7 @@ stage (SearchTransformer tsInit esInit leftTs rightTs solEs nextState) =
           [||
           \tree ->
             case tree of
-              Pure a -> $$(genCSP [|| a ||])
+              Pure a -> $$(genCSP [||a||])
               Free op -> $$(alg [||(\term -> (term, $$para term)) <$> op||])
           ||]
     )
@@ -370,6 +463,17 @@ bbLdsRandCode ::
     )
 bbLdsRandCode seed discrepancy = stage (bbLdsRandS seed discrepancy)
 
+bbLdsRandCodeNew ::
+  Int ->
+  Int ->
+  Code
+    Q
+    ( [(Label OvertonFD, ((), (Int, Int)), SearchTree OvertonFD a)] ->
+      SearchTree OvertonFD a ->
+      OvertonFD [a]
+    )
+bbLdsRandCodeNew seed discrepancy = stage2 (bbLdsRandS seed discrepancy)
+
 bbLdsRandCodeOld ::
   Int ->
   Int ->
@@ -383,3 +487,6 @@ bbLdsRandCodeOld seed discrepancy = stageOld (bbLdsRandS seed discrepancy)
 
 justBBCode :: Code Q ([(Label OvertonFD, Int, SearchTree OvertonFD a)] -> SearchTree OvertonFD a -> OvertonFD [a])
 justBBCode = stage bbS
+
+justBBCodeNew :: Code Q ([(Label OvertonFD, Int, SearchTree OvertonFD a)] -> SearchTree OvertonFD a -> OvertonFD [a])
+justBBCodeNew = stage2 bbS

@@ -23,13 +23,16 @@ import Solver (Solver (..))
 import Transformers (Transformer, it, lds, makeTEff, rand)
 import Prelude hiding (fail)
 
-type Bound solver a =
-  Free (CPSolve solver :+: NonDet :+: SolverE solver) a ->
-  Free (CPSolve solver :+: NonDet :+: SolverE solver) a
-
+type Bound solver a = SearchTree solver a -> SearchTree solver a
 type NewBound solver a = solver (Bound solver a)
-
 data BBEvalState solver a = BBP Int (Bound solver a)
+
+newBound :: NewBound OvertonFD a
+newBound = do
+  obj <- fd_objective
+  dom <- fd_domain $ obj
+  let val = head dom
+  pure $ \tree -> obj @< val /\ tree
 
 bb :: (Solver solver) => NewBound solver a -> Transformer Int (BBEvalState solver a) solver a
 bb newBound = makeTEff
@@ -38,17 +41,11 @@ bb newBound = makeTEff
   (\(BBP v _) -> solve newBound >>= \bound' -> pure (BBP (v + 1) bound'))
   pure
   pure
-  $ \v es@(BBP nv bound) tree -> if nv > v then (nv, es, bound tree) else (v, es, tree)
+  $ \tree v es@(BBP nv bound) -> if nv > v then (bound tree, nv, es) else (tree, v, es)
+
 
 bbSolve :: CSP a -> [a]
 bbSolve = dfs $ it . (bb newBound)
-
-newBound :: forall a. NewBound OvertonFD a
-newBound = do
-  obj <- fd_objective
-  dom <- fd_domain $ obj
-  let val = head dom
-  return ((\tree -> obj @< val /\ tree) :: Bound OvertonFD a)
 
 bbBench :: Int -> [Int]
 bbBench n = dfs (it . (bb newBound) . (lds 500) . (rand 2501)) (gmodel n)

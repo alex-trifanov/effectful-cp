@@ -35,10 +35,8 @@ showCode code = do
   expr <- runQ (unTypeCode (code))
   putStrLn (pprint expr)
 
-type Rep a = CodeQ a
-
+type Rep a = Code Q a
 newtype StateTransform state solver = ST {unST :: (Rep state -> Rep (solver state))}
-
 newtype NextTransform ts es solver a
   = NT
   { unNT ::
@@ -230,15 +228,16 @@ stage2 (SearchTransformer tsInit esInit leftTs rightTs solEs nextState) =
         Fail' ->
           if nullQ q
             then pure []
-            else
+            else do 
               let ((label, ts, tree), q') = popQ q
-               in $$( let (ts', es', tree') = unNT nextState [||ts||] [||es||] [||tree||]
-                       in [||$$jumpTo ((solve $ goto label) >> $$tree') $$ts' $$es' q'||]
+              goto label
+              $$( let (ts', es', tree') = unNT nextState [||ts||] [||es||] [||tree||]
+                       in [||$$jumpTo $$tree' $$ts' $$es' q'||]
                     )
 
         Try' (l, _) (r, _) -> do
           now <- mark
-          tsL <- $$(unST leftTs $ [||ts||])
+          tsL <- $$(unST leftTs  $ [||ts||])
           tsR <- $$(unST rightTs $ [||ts||])
           $$jumpTo fail ts es (pushQ (now, tsL, l) $ pushQ (now, tsR, r) q)
     ||]
@@ -406,10 +405,10 @@ composeTrans t1 t2 =
         let ts1 = [||fst $$ts||]
             ts2 = [||snd $$ts||]
          in [||
-            $$(unST (leftTs t1) $ ts1)
-              >>= \ts1' ->
-                $$(unST (leftTs t2) $ ts2)
-                  >>= \ts2' -> pure (ts1', ts2')
+            do 
+              ts1' <- $$(unST (leftTs t1) $ ts1)
+              ts2' <- $$(unST (leftTs t2) $ ts2)
+              pure (ts1', ts2')
             ||]
     , rightTs = ST $ \ts ->
         let ts1 = [||fst $$ts||]

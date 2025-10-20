@@ -40,7 +40,7 @@ runSolver (Pure a) = pure a
 runSolver (Solver a) = a >>= runSolver
 
 runSolverAlg :: Solver solver => Free (SolverE solver) a -> solver a 
-runSolverAlg = handle algSolver pure
+runSolverAlg = handle (\(RunSolver' s) -> join s) pure
 
 algSolver :: (Solver solver) => SolverE solver (solver a) -> solver a
 algSolver (RunSolver' s) = join s

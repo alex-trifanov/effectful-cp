@@ -10,7 +10,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# OPTIONS_GHC -Wno-missing-pattern-synonym-signatures #-}
-module Effects.Transformer(TransformerE(..), leftT, rightT, nextT, pattern LeftT, pattern RightT, pattern NextT, pattern InitT, initT, pattern SolT, solT, leftS, rightS) where 
+module Effects.Transformer(TransformerE(..), leftT, rightT, nextT, pattern LeftT, pattern RightT, pattern NextT, pattern InitT, initT, pattern SolT, solT, leftS, rightS, solS, nextS, initS) where 
 import Control.Monad.Free
 import Effects.Core
 
@@ -51,12 +51,21 @@ pattern NextT el ts es k <- (project -> Just (NextT' el ts es k))
 nextT :: (TransformerE ts es el) `Sub` sig => el -> ts -> es -> (el -> ts -> es -> Free sig a) -> Free sig a
 nextT el ts es k = inject (NextT' el ts es k)
 
+nextS :: (TransformerE ts es el) `Sub` sig => el -> ts -> es -> Free sig (el, ts, es)
+nextS el ts es = inject (NextT' el ts es (\el' ts' es' -> pure (el', ts', es')))
+
 pattern InitT k <- (project -> Just (InitT' k))
 
 initT :: forall ts es el a sig. (TransformerE ts es el `Sub` sig) => (ts -> es -> Free sig a) -> Free sig a
 initT k = inject (InitT' @ts @es @(Free sig a) @el k)
 
+initS :: forall ts es el sig. (TransformerE ts es el `Sub` sig) => Free sig (ts, es)
+initS = inject . InitT' @ts @es @_ @el $ \ts es -> pure (ts, es) 
+
 pattern SolT es k <- (project -> (Just (SolT' es k)))
 
 solT:: forall ts es el a sig. (TransformerE ts es el `Sub` sig) => es -> (es -> Free sig a) -> Free sig a
 solT es k = inject (SolT' @es @(Free sig a) @ts @el es k)
+
+solS :: forall ts es el sig. (TransformerE ts es el `Sub` sig) => es -> Free sig es
+solS es = inject (SolT' @es @(Free sig es) @ts @el es pure)

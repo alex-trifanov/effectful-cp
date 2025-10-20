@@ -15,7 +15,7 @@ import Effects.CPSolve (CPSolve (..), pattern Add, pattern Dynamic, pattern NewV
 import Effects.Core ((:+:) (..), pattern Other2)
 import Effects.NonDet (NonDet (..), fail, pattern Fail, pattern (:|:))
 import Effects.Solver (SolverE, runSolver, solve)
-import Effects.Transformer (TransformerE (..), initT, leftS, nextT, rightS, solT)
+import Effects.Transformer (TransformerE (..), initT, leftS, nextT, rightS, solT, solS, nextS, initS)
 import FD.OvertonFD (OvertonFD)
 import Queues (Queue (..))
 import Solver (Solver (..))
@@ -32,13 +32,6 @@ dfs ::
   [a]
 dfs trans model = run . runSolver . trans . (flip eval []) $ model
 
-dfs2 ::
-  (Solver solver) =>
-  (TransformerTree ts es solver a [a] -> Free (SolverE solver) [a]) ->
-  SearchTree solver a ->
-  [a]
-dfs2 trans model = run . runSolver . trans . (flip eval2 []) $ model
-
 dfsO ::
   (Solver solver) =>
   (TransformerTree ts es solver a [a] -> Free (SolverE solver) [a]) ->
@@ -52,56 +45,19 @@ eval ::
   SearchTree solver a ->
   q ->
   TransformerTree ts es solver a [a]
-eval model queue = initT (\ts es -> go model ts es queue)
- where
-  go :: SearchTree solver a -> ts -> es -> q -> TransformerTree ts es solver a [a]
-  go = handlePara (liftPara algCP <| algNonDet <| liftPara conCSP) genCSP
-
-  genCSP a _ es q = solT es (\es' -> (a :) <$> continue q es')
-
-  algCP (Add' c k) ts es q = do
-    success <- solve $ addCons c
-    if success then k ts es q else continue q es
-  algCP (NewVar' k) ts es q = do
-    var <- solve newvar
-    k var ts es q
-  algCP (Dynamic' d) ts es q = do
-    k <- solve d
-    k ts es q
-
-  algNonDet (Try' (l, _) (r, _)) ts es q = do
-    now <- solve mark
-    ls <- leftS ts
-    rs <- rightS ts
-    let q' = pushQ (now, ls, l) $ pushQ (now, rs, r) $ q
-    continue q' es
-  algNonDet (Fail') _ es q = continue q es
-
-  conCSP op q ts es = Free . Inr $ (\f -> f q ts es) <$> op
-
-  continue :: q -> es -> TransformerTree ts es solver a [a]
-  continue q es
-    | nullQ q = pure []
-    | otherwise =
-        let ((now, ts, tree), q') = popQ q
-         in do
-              solve $ goto now
-              nextT tree ts es (\tree' ts' es' -> go tree' ts' es' q')
-
-eval2 ::
-  forall solver q a es ts.
-  (Solver solver, Queue q, Elem q ~ (Label solver, ts, SearchTree solver a)) =>
-  SearchTree solver a ->
-  q ->
-  TransformerTree ts es solver a [a]
-eval2 model queue = initT (\ts es -> go model ts es queue)
+eval model queue = do 
+  (tsInit, esInit) <- initS 
+  go model tsInit esInit queue
  where
   go :: SearchTree solver a -> ts -> es -> q -> TransformerTree ts es solver a [a]
   go = handle2 (algCP <|$ algNonDet <|$ conCSP) genCSP
 
   genCSP :: (SearchTree solver a -> ts -> es -> q -> TransformerTree ts es solver a [a]) ->
     a -> ts -> es -> q -> TransformerTree ts es solver a [a]
-  genCSP jumpTo a ts es q = solT es (\es' -> (a :) <$> jumpTo fail ts es' q)
+  genCSP jumpTo a ts es q = do 
+    es' <- solS es 
+    (a:) <$> jumpTo fail ts es' q
+    -- solT es (\es' -> (a :) <$> jumpTo fail ts es' q)
 
   algCP jumpTo (Add' c (_, k)) ts es q = do
     success <- solve $ addCons c
@@ -134,9 +90,46 @@ eval2 model queue = initT (\ts es -> go model ts es queue)
         let ((now, ts, tree), q') = popQ q
          in do
               solve $ goto now
-              nextT tree ts es $ (\tree' ts' es' -> jumpTo tree' ts' es' q')
+              (tree', ts',es') <- nextS tree ts es
+              jumpTo tree' ts' es' q'
 
   conCSP _ op q ts es = Free . Inr $ (\f -> f q ts es) <$> (snd <$> op)
+
+evalNoTrans :: forall solver q a.
+  (Solver solver, Queue q, Elem q ~ (Label solver, SearchTree solver a)) =>
+  SearchTree solver a ->
+  q -> 
+  Free (SolverE solver) [a]
+evalNoTrans = handle2 (algCP <|$ algNonDet <|$ conCSP) genCSP
+ where
+
+  genCSP jumpTo a q = (a :) <$> jumpTo fail q
+
+  algCP jumpTo (Add' c (_, k)) q = do
+    success <- solve $ addCons c
+    if success then k q else jumpTo fail q
+  algCP _ (NewVar' k) q = do
+    var <- solve $ newvar
+    let (_, k') = k var
+    k' q
+  algCP _ (Dynamic' d) q = do
+    (_, k) <- solve $ d
+    k q
+    
+  algNonDet jumpTo (Try' (l, _) (r, _)) q = do
+    now <- solve mark
+    let q' = pushQ (now, l) $ pushQ (now, r) $ q
+    jumpTo fail q'
+  algNonDet jumpTo (Fail') q =
+    if nullQ q
+      then pure []
+      else
+        let ((now, tree), q') = popQ q
+         in do
+              solve $ goto now
+              jumpTo tree q'
+  conCSP _ op q = Free $ (($ q) <$> (snd <$> op))
+
 
 evalQ ::
   forall solver q a es ts.

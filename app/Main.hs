@@ -13,20 +13,21 @@ import BranchAndBound (bb)
 import Transformers
 import BranchAndBound (newBound)
 import Eval
+import Queens (nqueens)
 
 
 bbLdsRand = it . (bb newBound) . (lds 5000) . (rand 123)
+queensT = it . nbs 150000 . rand 300 . dbs 30
 
 main :: IO ()
 main = do
   arg <- head <$> getArgs
-  let graph = gmodel 60
+  let graph = gmodel 50
+      queens = nqueens 12
       sols = case arg of
-        "bb_lds_rand_staged" -> dfsS bbLdsRandStaged graph
-        "bb_lds_rand_staged_old" -> dfsS bbLdsRandStagedOld graph
-        "bb_lds_rand_staged_new" -> dfsS bbLdsRandStagedNew graph
-        "bb_lds_rand" -> dfs bbLdsRand graph
-        "bb_lds_rand_old" -> dfsO bbLdsRand graph
-        "bb_lds_rand_opt" -> dfsS bbLdsRandOptimised graph
+        "graph_staged" -> [dfsS bbLdsRandStaged graph]
+        "graph" -> [dfs bbLdsRand graph]
+        "queens" -> dfs queensT queens
+        "queens_staged" -> dfsS queensTransStaged queens
         _ -> []
   print $ sols

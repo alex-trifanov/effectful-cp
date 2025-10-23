@@ -23,19 +23,10 @@ bbLdsRandStaged :: SearchTree OvertonFD a -> OvertonFD [a]
 -- seed discrepancy
 bbLdsRandStaged = $$(bbLdsRandCode 123 5000) []
 
-bbLdsRandStagedNew :: SearchTree OvertonFD a -> OvertonFD [a] 
--- seed discrepancy
-bbLdsRandStagedNew = $$(bbLdsRandCodeNew 123 5000) []
-
-bbLdsRandStagedOld :: SearchTree OvertonFD a -> OvertonFD [a]
-bbLdsRandStagedOld = $$(bbLdsRandCodeOld 123 5000) []
+queensTransStaged :: SearchTree OvertonFD a -> OvertonFD [a]
+queensTransStaged = $$(queensTransCode) []
 
 justBBStaged :: SearchTree OvertonFD a -> OvertonFD [a]  
 justBBStaged = $$justBBCode []
 
-justBBOptimised :: SearchTree OvertonFD a -> OvertonFD [a]
-justBBOptimised = $$(Opt.justBBCode) []
-
-bbLdsRandOptimised :: SearchTree OvertonFD a -> OvertonFD [a]
-bbLdsRandOptimised = $$(Opt.bbLdsRandCode 123 5000) []
 

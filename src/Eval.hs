@@ -11,17 +11,17 @@ module Eval where
 
 import Control.Monad.Free (Free (..))
 import Effects.Algebra
-import Effects.CPSolve (CPSolve (..), pattern Add, pattern Dynamic, pattern NewVar)
 import Effects.Core ((:+:) (..), pattern Other2)
 import Effects.NonDet (NonDet (..), fail, pattern Fail, pattern (:|:))
-import Effects.Solver (SolverE, runSolver, solve)
+import Effects.Solver (SolverE (..), runSolver, solve)
 import Effects.Transformer (TransformerE (..), initT, leftS, nextT, rightS, solT, solS, nextS, initS)
 import FD.OvertonFD (OvertonFD)
 import Queues (Queue (..))
 import Solver (Solver (..))
 import Prelude hiding (fail)
+import Effects.CPOps (CPOps(..))
 
-type SearchTree solver a = Free (CPSolve solver :+: NonDet :+: SolverE solver) a
+type SearchTree solver a = Free (CPOps solver :+: NonDet :+: SolverE solver) a
 type TransformerTree ts es solver a b = Free (TransformerE ts es (SearchTree solver a) :+: SolverE solver) b
 type CSP a = SearchTree OvertonFD a
 
@@ -50,7 +50,7 @@ eval model queue = do
   go model tsInit esInit queue
  where
   go :: SearchTree solver a -> ts -> es -> q -> TransformerTree ts es solver a [a]
-  go = handle2 (algCP <|$ algNonDet <|$ conCSP) genCSP
+  go = handle2 (algCP |>$<| algNonDet |>$<| algSolv) genCSP
 
   genCSP :: (SearchTree solver a -> ts -> es -> q -> TransformerTree ts es solver a [a]) ->
     a -> ts -> es -> q -> TransformerTree ts es solver a [a]
@@ -66,9 +66,6 @@ eval model queue = do
     var <- solve $ newvar
     let (_, k') = k var
     k' ts es q
-  algCP _ (Dynamic' d) ts es q = do
-    (_, k) <- solve $ d
-    k ts es q
 
   algNonDet ::
     (SearchTree solver a -> ts -> es -> q -> TransformerTree ts es solver a [a]) ->
@@ -93,14 +90,17 @@ eval model queue = do
               (tree', ts',es') <- nextS tree ts es
               jumpTo tree' ts' es' q'
 
-  conCSP _ op q ts es = Free . Inr $ (\f -> f q ts es) <$> (snd <$> op)
+  algSolv _ (RunSolver' s) ts es q = do 
+    (_, k) <- solve s 
+    k ts es q
+  -- conCSP _ op q ts es = Free . Inr $ (\f -> f q ts es) <$> (snd <$> op)
 
 evalNoTrans :: forall solver q a.
   (Solver solver, Queue q, Elem q ~ (Label solver, SearchTree solver a)) =>
   SearchTree solver a ->
   q -> 
   Free (SolverE solver) [a]
-evalNoTrans = handle2 (algCP <|$ algNonDet <|$ conCSP) genCSP
+evalNoTrans = handle2 (algCP |>$<| algNonDet |>$<| algSolv) genCSP
  where
 
   genCSP jumpTo a q = (a :) <$> jumpTo fail q
@@ -112,9 +112,6 @@ evalNoTrans = handle2 (algCP <|$ algNonDet <|$ conCSP) genCSP
     var <- solve $ newvar
     let (_, k') = k var
     k' q
-  algCP _ (Dynamic' d) q = do
-    (_, k) <- solve $ d
-    k q
     
   algNonDet jumpTo (Try' (l, _) (r, _)) q = do
     now <- solve mark
@@ -128,7 +125,10 @@ evalNoTrans = handle2 (algCP <|$ algNonDet <|$ conCSP) genCSP
          in do
               solve $ goto now
               jumpTo tree q'
-  conCSP _ op q = Free $ (($ q) <$> (snd <$> op))
+  algSolv _ (RunSolver' s) q = do 
+    (_, k) <- solve s 
+    k q
+  -- conCSP _ op q = Free $ (($ q) <$> (snd <$> op))
 
 
 evalQ ::
@@ -137,38 +137,39 @@ evalQ ::
   q ->
   SearchTree solver a ->
   TransformerTree ts es solver a [a]
-evalQ queue model = initT (\ts es -> go model queue ts es)
- where
-  go :: SearchTree solver a -> q -> ts -> es -> TransformerTree ts es solver a [a]
-  continue :: q -> es -> TransformerTree ts es solver a [a]
+evalQ queue model = undefined
+--   initT (\ts es -> go model queue ts es)
+--  where
+--   go :: SearchTree solver a -> q -> ts -> es -> TransformerTree ts es solver a [a]
+--   continue :: q -> es -> TransformerTree ts es solver a [a]
 
-  go (Pure a) q _ es = solT es (\es' -> (a :) <$> continue q es')
-  go (l :|: r) q ts es = do
-    now <- solve mark
-    ls <- leftS ts
-    rs <- rightS ts
-    let q' = pushQ (now, ls, l) $ pushQ (now, rs, r) $ q
-    continue q' es
-  go (Fail) q _ es = continue q es
-  go (Add c k) q ts es = do
-    success <- solve $ addCons c
-    if success then go k q ts es else continue q es
-  go (NewVar k) q ts es = do
-    var <- solve newvar
-    go (k var) q ts es
-  go (Dynamic k) q ts es = do
-    term <- solve k
-    go term q ts es
-  go (Other2 op) q ts es = Free . Inr $ (\t -> go t q ts es) <$> op
-  go (Free _) _ _ _ = undefined
+--   go (Pure a) q _ es = solT es (\es' -> (a :) <$> continue q es')
+--   go (l :|: r) q ts es = do
+--     now <- solve mark
+--     ls <- leftS ts
+--     rs <- rightS ts
+--     let q' = pushQ (now, ls, l) $ pushQ (now, rs, r) $ q
+--     continue q' es
+--   go (Fail) q _ es = continue q es
+--   go (Add c k) q ts es = do
+--     success <- solve $ addCons c
+--     if success then go k q ts es else continue q es
+--   go (NewVar k) q ts es = do
+--     var <- solve newvar
+--     go (k var) q ts es
+--   go (Dynamic k) q ts es = do
+--     term <- solve k
+--     go term q ts es
+--   go (Other2 op) q ts es = Free . Inr $ (\t -> go t q ts es) <$> op
+--   go (Free _) _ _ _ = undefined
 
-  continue q es
-    | nullQ q = pure []
-    | otherwise =
-        let ((now, ts, tree), q') = popQ q
-         in do
-              solve $ goto now
-              nextT tree ts es (\tree' ts' es' -> go tree' q' ts' es')
+--   continue q es
+--     | nullQ q = pure []
+--     | otherwise =
+--         let ((now, ts, tree), q') = popQ q
+--          in do
+--               solve $ goto now
+--               nextT tree ts es (\tree' ts' es' -> go tree' q' ts' es')
 
 -- evalIndep ::
 --   forall solver a sig.

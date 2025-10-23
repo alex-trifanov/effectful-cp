@@ -40,7 +40,7 @@ makeTEff ::
   (SearchTree solver a -> ts -> es -> (SearchTree solver a, ts, es)) ->
   TransformerTree (ts, ts') (es, es') solver a [a] ->
   TransformerTree ts' es' solver a [a]
-makeTEff tsInit esInit esSol tsLeft tsRight nextState = handle (alg <| wrap . Inr) pure
+makeTEff tsInit esInit esSol tsLeft tsRight nextState = handle (alg |><| wrap . Inr) pure
  where
   alg ::
     TransformerE
@@ -79,7 +79,7 @@ makeTransNC ::
   (ts -> Free (SolverE solver) ts) ->
   (SearchTree solver a -> ts -> es -> (SearchTree solver a, ts, es)) ->
   Transformer' ts es solver a
-makeTransNC tsInit esInit esSol tsLeft tsRight nextState = handle (alg <| Free) pure
+makeTransNC tsInit esInit esSol tsLeft tsRight nextState = handle (alg |><| Free) pure
  where
   alg (InitT' k) = do
     k tsInit esInit
@@ -134,7 +134,7 @@ lds discrepancyLimit = makeTEff 0 () pure pure (pure . succ) $
   \tree disc u -> (if disc <= discrepancyLimit then tree else fail, disc, u)
 
 it :: forall solver a. (Solver solver) => Transformer' () () solver a
-it = handle (alg <| wrap) pure
+it = handle (alg |><| wrap) pure
  where
   alg ::
     TransformerE () () (SearchTree solver a) (Free (SolverE solver) [a]) ->

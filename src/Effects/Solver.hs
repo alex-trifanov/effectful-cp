@@ -29,11 +29,11 @@ instance (Solver solver) => Functor (SolverE solver) where
 
 pattern Solver a <- (project -> (Just (RunSolver' a)))
 
-solve' :: forall solver a sig. (Solver solver, SolverE solver `Sub` sig) => solver (Free sig a) -> Free sig a
-solve' = inject . RunSolver'
+dynamic :: forall solver a sig. (Solver solver, SolverE solver `Sub` sig) => solver (Free sig a) -> Free sig a
+dynamic = inject . RunSolver'
 
 solve :: (Solver solver, Sub (SolverE solver) sig) => solver a -> Free sig a
-solve a = solve' $ pure <$> a
+solve a = dynamic $ pure <$> a
 
 runSolver :: Solver solver => Free (SolverE solver) a -> solver a 
 runSolver (Pure a) = pure a

@@ -12,10 +12,10 @@
 module BranchAndBound where
 
 import Control.Monad.Free (Free (..))
-import Effects.CPSolve (CPSolve, dynamic, exists, (@<), (@>))
+import Effects.CPOps (CPOps, exists, (@<), (@>))
 import Effects.Core ((:+:) (..))
 import Effects.NonDet (NonDet (..))
-import Effects.Solver (SolverE, solve)
+import Effects.Solver (SolverE, solve, dynamic)
 import Eval
 import FD.OvertonFD (OvertonFD, fd_domain, fd_objective)
 import Queens

@@ -14,8 +14,7 @@
 module Staging.Direct where
 
 import Control.Monad.Free
-import Effects.Algebra
-import Effects.CPSolve
+import Effects.CPOps (CPOps (..), (@<))
 import Effects.Core ((:+:) (..))
 import Effects.NonDet
 import Effects.Solver
@@ -25,7 +24,6 @@ import Language.Haskell.TH
 import Queens ((/\))
 import Queues
 import Solver (Solver (..))
-import Staging.Old.Direct (rec2)
 import System.Random
 import Transformers (flipT)
 import Prelude hiding (fail)
@@ -58,15 +56,34 @@ data (Solver solver) => SearchTransformer ts es solver a = SearchTransformer
   , nextState :: NextTransform ts es solver a
   }
 
-dbsTrans :: (Solver solver) => Int -> SearchTransformer Int () solver a
-dbsTrans depthLimit =
+dbsS :: (Solver solver) => Int -> SearchTransformer Int () solver a
+dbsS depthLimit =
   SearchTransformer
     { tsInit = [||0||]
     , esInit = [||()||]
     , solEs = idState
     , leftTs = ST $ \ts -> [||pure $ $$ts + 1||]
     , rightTs = ST $ \ts -> [||pure $ $$ts + 1||]
-    , nextState = NT $ \ts es model -> (ts, es, [||if $$ts <= depthLimit then $$model else fail||])
+    , nextState = NT $ \ts es model ->
+        ( ts
+        , es
+        , [||if $$ts <= depthLimit then $$model else fail||]
+        )
+    }
+
+nbsS :: (Solver solver) => Int -> SearchTransformer () Int solver a
+nbsS nodeLimit =
+  SearchTransformer
+    { tsInit = [||()||]
+    , esInit = [||0||]
+    , solEs = idState
+    , leftTs = idState
+    , rightTs = idState
+    , nextState = NT $ \ts es model ->
+        ( ts
+        , [||$$es + 1||]
+        , [||if $$es <= nodeLimit then $$model else fail||]
+        )
     }
 
 -- branch and bound scaffolding
@@ -160,14 +177,14 @@ randS seed =
   ||]
 infixr 6 <||
 
-(<|$|) :: (c -> Rep (f a) -> Rep b) -> (c -> Rep (g a) -> Rep b) -> c -> Rep ((f :+: g) a) -> Rep b
-(<|$|) algF algG c s =
+(|>|<|) :: (c -> Rep (f a) -> Rep b) -> (c -> Rep (g a) -> Rep b) -> c -> Rep ((f :+: g) a) -> Rep b
+(|>|<|) algF algG c s =
   [||
   case $$s of
     (Inl l) -> $$(algF c [||l||])
     (Inr r) -> $$(algG c [||r||])
   ||]
-infixr 6 <|$|
+infixr 6 |>|<|
 
 mkRec :: (Rep a -> Rep a) -> Rep a
 mkRec r = [||let f = $$(r [||f||]) in f||]
@@ -196,7 +213,7 @@ stage2 (SearchTransformer tsInit esInit leftTs rightTs solEs nextState) =
   [||\q model -> $$go model $$tsInit $$esInit q||]
  where
   go :: Rep (SearchTree solver a -> ts -> es -> q -> solver [a])
-  go = handle2S (algCSP <|$| algNonDet <|$| algSolv) genCSP
+  go = handle2S (algCSP |>|<| algNonDet |>|<| algSolv) genCSP
 
   genCSP jumpTo a =
     [||
@@ -216,9 +233,9 @@ stage2 (SearchTransformer tsInit esInit leftTs rightTs solEs nextState) =
           var <- newvar
           let (_, k') = k var
           k' ts es q
-        (Dynamic' d) -> do
-          (_, k) <- d
-          k ts es q
+          -- (Dynamic' d) -> do
+          --   (_, k) <- d
+          --   k ts es q
     ||]
 
   algNonDet jumpTo term =
@@ -228,16 +245,15 @@ stage2 (SearchTransformer tsInit esInit leftTs rightTs solEs nextState) =
         Fail' ->
           if nullQ q
             then pure []
-            else do 
+            else do
               let ((label, ts, tree), q') = popQ q
               goto label
               $$( let (ts', es', tree') = unNT nextState [||ts||] [||es||] [||tree||]
-                       in [||$$jumpTo $$tree' $$ts' $$es' q'||]
-                    )
-
+                   in [||$$jumpTo $$tree' $$ts' $$es' q'||]
+                )
         Try' (l, _) (r, _) -> do
           now <- mark
-          tsL <- $$(unST leftTs  $ [||ts||])
+          tsL <- $$(unST leftTs $ [||ts||])
           tsR <- $$(unST rightTs $ [||ts||])
           $$jumpTo fail ts es (pushQ (now, tsL, l) $ pushQ (now, tsR, r) q)
     ||]
@@ -254,143 +270,143 @@ stage2 (SearchTransformer tsInit esInit leftTs rightTs solEs nextState) =
             k ts es q
     ||]
 
-stage ::
-  forall solver q ts es a.
-  ( Solver solver
-  , Queue q
-  , Elem q ~ (Label solver, ts, SearchTree solver a)
-  ) =>
-  SearchTransformer ts es solver a ->
-  Code Q (q -> SearchTree solver a -> solver [a])
-stage (SearchTransformer tsInit esInit leftTs rightTs solEs nextState) =
-  rec2
-    ( \(para, continue) ->
-        let
-          algCSP ::
-            Rep (CPSolve solver (SearchTree solver a, ts -> es -> q -> solver [a])) ->
-            Rep (ts -> es -> q -> solver [a])
-          algCSP term =
-            [||
-            \ts es q ->
-              case $$term of
-                (Add' c (_, k)) -> do
-                  success <- addCons c
-                  if success then k ts es q else $$continue es q
-                (NewVar' k) -> do
-                  var <- newvar
-                  let (_, k') = k var
-                  k' ts es q
-                (Dynamic' d) -> do
-                  (_, k) <- d
-                  k ts es q
-            ||]
+-- stage ::
+--   forall solver q ts es a.
+--   ( Solver solver
+--   , Queue q
+--   , Elem q ~ (Label solver, ts, SearchTree solver a)
+--   ) =>
+--   SearchTransformer ts es solver a ->
+--   Code Q (q -> SearchTree solver a -> solver [a])
+-- stage (SearchTransformer tsInit esInit leftTs rightTs solEs nextState) =
+--   rec2
+--     ( \(para, continue) ->
+--         let
+--           algCSP ::
+--             Rep (CPOps solver (SearchTree solver a, ts -> es -> q -> solver [a])) ->
+--             Rep (ts -> es -> q -> solver [a])
+--           algCSP term =
+--             [||
+--             \ts es q ->
+--               case $$term of
+--                 (Add' c (_, k)) -> do
+--                   success <- addCons c
+--                   if success then k ts es q else $$continue es q
+--                 (NewVar' k) -> do
+--                   var <- newvar
+--                   let (_, k') = k var
+--                   k' ts es q
+--                 -- (Dynamic' d) -> do
+--                 --   (_, k) <- d
+--                 --   k ts es q
+--             ||]
 
-          algNonDet ::
-            Rep
-              (NonDet (SearchTree solver a, ts -> es -> q -> solver [a])) ->
-            Rep (ts -> es -> q -> solver [a])
-          algNonDet term =
-            [||
-            \ts es q ->
-              case $$term of
-                Fail' -> $$continue es q
-                Try' (l, _) (r, _) -> do
-                  now <- mark
-                  tsL <- $$(unST leftTs $ [||ts||])
-                  tsR <- $$(unST rightTs $ [||ts||])
-                  $$continue es (pushQ (now, tsL, l) $ pushQ (now, tsR, r) q)
-            ||]
+--           algNonDet ::
+--             Rep
+--               (NonDet (SearchTree solver a, ts -> es -> q -> solver [a])) ->
+--             Rep (ts -> es -> q -> solver [a])
+--           algNonDet term =
+--             [||
+--             \ts es q ->
+--               case $$term of
+--                 Fail' -> $$continue es q
+--                 Try' (l, _) (r, _) -> do
+--                   now <- mark
+--                   tsL <- $$(unST leftTs $ [||ts||])
+--                   tsR <- $$(unST rightTs $ [||ts||])
+--                   $$continue es (pushQ (now, tsL, l) $ pushQ (now, tsR, r) q)
+--             ||]
 
-          algSolver ::
-            Rep (SolverE solver (SearchTree solver a, ts -> es -> q -> solver [a])) ->
-            Rep (ts -> es -> q -> solver [a])
-          algSolver term =
-            [||
-            \ts es q ->
-              let (RunSolver' s) = $$term
-               in do
-                    (_, k) <- s
-                    k ts es q
-            ||]
+--           algSolver ::
+--             Rep (SolverE solver (SearchTree solver a, ts -> es -> q -> solver [a])) ->
+--             Rep (ts -> es -> q -> solver [a])
+--           algSolver term =
+--             [||
+--             \ts es q ->
+--               let (RunSolver' s) = $$term
+--                in do
+--                     (_, k) <- s
+--                     k ts es q
+--             ||]
 
-          genCSP :: Rep a -> Rep (ts -> es -> q -> solver [a])
-          genCSP a =
-            [||
-            \_ es q -> do
-              es' <- $$(unST solEs $ [||es||])
-              (($$a) :) <$> $$continue es' q
-            ||]
+--           genCSP :: Rep a -> Rep (ts -> es -> q -> solver [a])
+--           genCSP a =
+--             [||
+--             \_ es q -> do
+--               es' <- $$(unST solEs $ [||es||])
+--               (($$a) :) <$> $$continue es' q
+--             ||]
 
-          alg = algCSP <|| algNonDet <|| algSolver
-         in
-          [||
-          \tree ->
-            case tree of
-              Pure a -> $$(genCSP [||a||])
-              Free op -> $$(alg [||(\term -> (term, $$para term)) <$> op||])
-          ||]
-    )
-    ( \(go, _) ->
-        [||
-        \es q ->
-          if nullQ q
-            then pure []
-            else
-              let ((label, ts, tree), q') = popQ q
-               in $$( let (ts', es', tree') = unNT nextState [||ts||] [||es||] [||tree||]
-                       in [||$$go ((solve $ goto label) >> $$tree') $$ts' $$es' q'||]
-                    )
-        ||]
-    )
-    (\(go, _) -> [||\q model -> $$go model $$tsInit $$esInit q||])
+--           alg = algCSP <|| algNonDet <|| algSolver
+--          in
+--           [||
+--           \tree ->
+--             case tree of
+--               Pure a -> $$(genCSP [||a||])
+--               Free op -> $$(alg [||(\term -> (term, $$para term)) <$> op||])
+--           ||]
+--     )
+--     ( \(go, _) ->
+--         [||
+--         \es q ->
+--           if nullQ q
+--             then pure []
+--             else
+--               let ((label, ts, tree), q') = popQ q
+--                in $$( let (ts', es', tree') = unNT nextState [||ts||] [||es||] [||tree||]
+--                        in [||$$go ((solve $ goto label) >> $$tree') $$ts' $$es' q'||]
+--                     )
+--         ||]
+--     )
+--     (\(go, _) -> [||\q model -> $$go model $$tsInit $$esInit q||])
 
-stageOld ::
-  forall solver q ts es a.
-  ( Solver solver
-  , Queue q
-  , Elem q ~ (Label solver, ts, SearchTree solver a)
-  ) =>
-  SearchTransformer ts es solver a ->
-  Code Q (q -> SearchTree solver a -> solver [a])
-stageOld (SearchTransformer tsInit esInit leftTs rightTs solEs nextState) =
-  rec2
-    ( \(go, continue) ->
-        [||
-        \tree ts es q -> case tree of
-          Pure a -> do
-            es' <- $$(unST solEs $ [||es||])
-            (a :) <$> ($$continue es' q)
-          l :|: r -> do
-            now <- mark
-            tsL <- $$(unST leftTs $ [||ts||])
-            tsR <- $$(unST rightTs $ [||ts||])
-            $$continue es (pushQ (now, tsL, l) $ pushQ (now, tsR, r) q)
-          Fail -> $$continue es q
-          (Add c k) -> do
-            success <- addCons c
-            if success then $$go k ts es q else $$continue es q
-          (NewVar k) -> do
-            var <- newvar
-            $$go (k var) ts es q
-          (Dynamic k) -> do
-            term <- k
-            $$go term ts es q
-          (Solver s) -> s >>= \term -> $$go term ts es q
-        ||]
-    )
-    ( \(go, _) ->
-        [||
-        \es q ->
-          if nullQ q
-            then pure []
-            else
-              let ((label, ts, tree), q') = popQ q
-               in $$( let (ts', es', tree') = unNT nextState [||ts||] [||es||] [||tree||]
-                       in [||$$go ((solve $ goto label) >> $$tree') $$ts' $$es' q'||]
-                    )
-        ||]
-    )
-    (\(go, _) -> [||\q model -> $$go model $$tsInit $$esInit q||])
+-- stageOld ::
+--   forall solver q ts es a.
+--   ( Solver solver
+--   , Queue q
+--   , Elem q ~ (Label solver, ts, SearchTree solver a)
+--   ) =>
+--   SearchTransformer ts es solver a ->
+--   Code Q (q -> SearchTree solver a -> solver [a])
+-- stageOld (SearchTransformer tsInit esInit leftTs rightTs solEs nextState) =
+--   rec2
+--     ( \(go, continue) ->
+--         [||
+--         \tree ts es q -> case tree of
+--           Pure a -> do
+--             es' <- $$(unST solEs $ [||es||])
+--             (a :) <$> ($$continue es' q)
+--           l :|: r -> do
+--             now <- mark
+--             tsL <- $$(unST leftTs $ [||ts||])
+--             tsR <- $$(unST rightTs $ [||ts||])
+--             $$continue es (pushQ (now, tsL, l) $ pushQ (now, tsR, r) q)
+--           Fail -> $$continue es q
+--           (Add c k) -> do
+--             success <- addCons c
+--             if success then $$go k ts es q else $$continue es q
+--           (NewVar k) -> do
+--             var <- newvar
+--             $$go (k var) ts es q
+--           (Dynamic k) -> do
+--             term <- k
+--             $$go term ts es q
+--           (Solver s) -> s >>= \term -> $$go term ts es q
+--         ||]
+--     )
+--     ( \(go, _) ->
+--         [||
+--         \es q ->
+--           if nullQ q
+--             then pure []
+--             else
+--               let ((label, ts, tree), q') = popQ q
+--                in $$( let (ts', es', tree') = unNT nextState [||ts||] [||es||] [||tree||]
+--                        in [||$$go ((solve $ goto label) >> $$tree') $$ts' $$es' q'||]
+--                     )
+--         ||]
+--     )
+--     (\(go, _) -> [||\q model -> $$go model $$tsInit $$esInit q||])
 
 composeTrans ::
   (Solver solver) =>
@@ -405,7 +421,7 @@ composeTrans t1 t2 =
         let ts1 = [||fst $$ts||]
             ts2 = [||snd $$ts||]
          in [||
-            do 
+            do
               ts1' <- $$(unST (leftTs t1) $ ts1)
               ts2' <- $$(unST (leftTs t2) $ ts2)
               pure (ts1', ts2')
@@ -460,32 +476,33 @@ bbLdsRandCode ::
       SearchTree OvertonFD a ->
       OvertonFD [a]
     )
-bbLdsRandCode seed discrepancy = stage (bbLdsRandS seed discrepancy)
+bbLdsRandCode seed discrepancy = stage2 (bbLdsRandS seed discrepancy)
 
-bbLdsRandCodeNew ::
-  Int ->
-  Int ->
-  Code
-    Q
-    ( [(Label OvertonFD, ((), (Int, Int)), SearchTree OvertonFD a)] ->
-      SearchTree OvertonFD a ->
-      OvertonFD [a]
-    )
-bbLdsRandCodeNew seed discrepancy = stage2 (bbLdsRandS seed discrepancy)
-
-bbLdsRandCodeOld ::
-  Int ->
-  Int ->
-  Code
-    Q
-    ( [(Label OvertonFD, ((), (Int, Int)), SearchTree OvertonFD a)] ->
-      SearchTree OvertonFD a ->
-      OvertonFD [a]
-    )
-bbLdsRandCodeOld seed discrepancy = stageOld (bbLdsRandS seed discrepancy)
+-- bbLdsRandCodeOld ::
+--   Int ->
+--   Int ->
+--   Code
+--     Q
+--     ( [(Label OvertonFD, ((), (Int, Int)), SearchTree OvertonFD a)] ->
+--       SearchTree OvertonFD a ->
+--       OvertonFD [a]
+--     )
+-- bbLdsRandCodeOld seed discrepancy = stageOld (bbLdsRandS seed discrepancy)
 
 justBBCode :: Code Q ([(Label OvertonFD, Int, SearchTree OvertonFD a)] -> SearchTree OvertonFD a -> OvertonFD [a])
-justBBCode = stage bbS
+justBBCode = stage2 bbS
 
 justBBCodeNew :: Code Q ([(Label OvertonFD, Int, SearchTree OvertonFD a)] -> SearchTree OvertonFD a -> OvertonFD [a])
 justBBCodeNew = stage2 bbS
+
+queensTransS :: (Solver solver) => SearchTransformer (Int, ((), ())) ((), ([Bool], Int)) solver a
+queensTransS = dbsS 30 %& randS 300 %& nbsS 150000
+
+queensTransCode ::
+  Code
+    Q
+    ( [(Label OvertonFD, (Int, ((), ())), SearchTree OvertonFD a)] ->
+      SearchTree OvertonFD a ->
+      OvertonFD [a]
+    )
+queensTransCode = stage2 queensTransS

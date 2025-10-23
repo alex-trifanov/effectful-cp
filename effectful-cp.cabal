@@ -73,6 +73,7 @@ library
                     , Effects.Solver
                     , Effects.Algebra
                     , Effects.Writer
+                    , Effects.CPOps
                     , Staging.Toplevel
                     , Staging.Old.Direct
                     , Staging.Old.Optimised

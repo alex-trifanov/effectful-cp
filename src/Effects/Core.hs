@@ -22,7 +22,7 @@ module Effects.Core (
   Void,
   getL,
   putL,
-  wrapF,
+  -- wrapF,
   wrapFree,
   liftR,
   pattern Other2
@@ -83,12 +83,12 @@ instance {-# OVERLAPPABLE #-} (Functor sig1, sig `Sub` sig2) => sig `Sub` (sig1 
 inject :: (sub `Sub` sup) => sub (Free sup a) -> Free sup a
 inject = Free . inj
 
-wrapF :: (sub `Sub` sup) => sub a -> Free sup a
-wrapF = Free . inj . (pure <$>)
-
 project :: (sub `Sub` sup) => Free sup a -> Maybe (sub (Free sup a))
 project (Free s) = prj s
 project _ = Nothing
+
+-- wrapF :: (sub `Sub` sup) => sub a -> Free sup a
+-- wrapF = Free . inj . (pure <$>)
 
 getL :: Free (sig1 :+: sig2) a -> Maybe (sig1 (Free (sig1 :+: sig2) a))
 getL (Free (Inl a)) = Just a

@@ -24,15 +24,15 @@ handle2 :: (Functor f) =>
 handle2 alg gen (Pure x) = gen (handle2 alg gen) x
 handle2 alg gen (Free op) = alg (handle2 alg gen) $ (\fa -> (fa, handle2 alg gen fa)) <$> op
 
-(<|) :: (f a -> b) -> (g a -> b) -> (f :+: g) a -> b
-(<|) algF _algG (Inl s) = algF s
-(<|) _algF algG (Inr s) = algG s
-infixr 6 <|
+(|><|) :: (f a -> b) -> (g a -> b) -> (f :+: g) a -> b
+(|><|) algF _algG (Inl s) = algF s
+(|><|) _algF algG (Inr s) = algG s
+infixr 6 |><|
 
-(<|$) :: (c -> f a -> b) -> (c -> g a -> b) -> (c -> (f :+: g) a -> b)
-(<|$) algF _algG cont (Inl s) = algF cont s 
-(<|$) _algF algG cont (Inr s) = algG cont s
-infixr 6 <|$
+(|>$<|) :: (c -> f a -> b) -> (c -> g a -> b) -> (c -> (f :+: g) a -> b)
+(|>$<|) algF _algG cont (Inl s) = algF cont s 
+(|>$<|) _algF algG cont (Inr s) = algG cont s
+infixr 6 |>$<|
 
 liftPara :: (Functor f) => (f b -> b) -> (f (c, b) -> b)
 liftPara alg = alg . (snd <$>)

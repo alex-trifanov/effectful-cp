@@ -14,7 +14,8 @@ import FD.OvertonFD as OvertonFD
 import FD.Domain as Domain
 import GHC.Exts (sortWith)
 import Effects.Core ((:+:), Void, Sub)
-import Effects.CPSolve (exist, in_domain, (@\=), (@\==), (@+), (@=), dynamic)
+import Effects.CPOps (exist, in_domain, (@\=), (@\==), (@+), (@=))
+import Effects.Solver (dynamic)
 import Control.Monad.Free (Free)
 import Effects.NonDet (try, fail, NonDet)
 import Eval (CSP)

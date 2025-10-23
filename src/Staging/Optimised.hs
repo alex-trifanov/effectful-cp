@@ -27,7 +27,6 @@ import Data.Kind
 import Effects.CPSolve
 import Effects.NonDet
 import Effects.Solver
-import Eval (SearchTree)
 import FD.OvertonFD
 import Language.Haskell.TH hiding (Type)
 import Queens ((/\))
@@ -37,6 +36,9 @@ import Staging.Old.Direct (rec2)
 import System.Random
 import Transformers (flipT)
 import Prelude hiding (fail)
+import Effects.Core ((:+:))
+
+type SearchTree solver a = Free (CPSolve solver :+: NonDet :+: SolverE solver) a
 
 showCode :: Code Q a -> IO ()
 showCode code = do

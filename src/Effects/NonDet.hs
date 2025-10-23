@@ -9,6 +9,7 @@ module Effects.NonDet (fail, pattern (:|:), try, NonDet(..), pattern Fail) where
 import Control.Monad.Free (Free(..))
 import Effects.Core (Sub, project, inject)
 import Prelude hiding (fail)
+import Effects.Algebra (handle)
   
 data NonDet a where
   Try'  :: a -> a -> NonDet a
@@ -35,3 +36,15 @@ pattern p :|: q <- (project -> Just (Try' p q))
 try :: (NonDet `Sub` sig) => Free sig a -> Free sig a -> Free sig a 
 try p q = inject (Try' p q)
 
+data Coin = Heads | Tails deriving Show 
+flip :: Free NonDet Coin 
+flip = Free (Try' (Pure Heads) (Pure Tails))
+
+allLeaves :: Free NonDet a -> [a]
+allLeaves = handle alg (\a -> [a])
+  where 
+    alg Fail' = []
+    alg (Try' l r) = l ++ r
+
+flip' :: (NonDet `Sub` sig) => Free sig Coin 
+flip' = try (Pure Heads) (Pure Tails)

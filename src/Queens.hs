@@ -62,20 +62,20 @@ conj = foldl (/\) true
 
 -- -----------------------| Labelling |------------------------
 
-enumerate vs = dynamic (label firstfail id vs)
+enumerate vs = label firstfail id vs
 
 label :: ([FDVar] -> OvertonFD [FDVar]) -> ([Int] -> [Int]) ->
-  [FDVar] -> OvertonFD (CSP ())
+  [FDVar] -> CSP ()
 label varsel valsel vs = do
-  vs' <- varsel vs
+  vs' <- dynamic $ varsel vs
   label' vs'
   where
-    label' [] = pure . pure $ ()
+    label' [] = pure $ ()
     label' (v:vs) = do
       -- d <- valsel $ Domain.elems $ OvertonFD.lookup v
-      d <- fd_domain v
+      d <- dynamic $ fd_domain v
       let d' = valsel d
-      pure $ enum v d' /\ dynamic (label varsel valsel vs)
+      enum v d' /\ (label varsel valsel vs)
 
 firstfail :: [FDVar] -> OvertonFD [FDVar]
 firstfail vs = do
@@ -97,7 +97,7 @@ assignments = mapM assignment
 assignment q = dynamic $ do 
   d <- fd_domain q
   let v = head d
-  pure $ pure v
+  pure v
 
 -- ----------------------| Knapsack |------------------------
 

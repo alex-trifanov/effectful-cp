@@ -26,7 +26,7 @@ import Control.Monad.Free
 import Data.Kind
 import Effects.CPSolve
 import Effects.NonDet
-import Effects.Solver
+import Effects.Solver hiding ((@<))
 import FD.OvertonFD
 import Language.Haskell.TH hiding (Type)
 import Queens ((/\))

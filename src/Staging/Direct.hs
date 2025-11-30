@@ -17,7 +17,7 @@ import Control.Monad.Free
 import Effects.CPOps (CPOps (..), (@<))
 import Effects.Core ((:+:) (..))
 import Effects.NonDet
-import Effects.Solver
+import Effects.Solver hiding ((@<))
 import Eval (SearchTree)
 import FD.OvertonFD
 import Language.Haskell.TH

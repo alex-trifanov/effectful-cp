@@ -3,7 +3,7 @@
 cabal build 
 
 hyperfine --export-markdown benchmark.md \
-    'cabal run effectful-cp -- "graph_staged"' \
-    'cabal run effectful-cp -- "graph"' \
+    'cabal run effectful-cp -- "queens_staged"' \
+    'cabal run effectful-cp -- "queens"' \
     # 'cabal run effectful-cp -- "bb_lds_rand"' \
      

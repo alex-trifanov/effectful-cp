@@ -23,7 +23,7 @@ main :: IO ()
 main = do
   arg <- head <$> getArgs
   let graph = gmodel 50
-      queens = nqueens 12
+      queens = nqueens 11
       sols = case arg of
         "graph_staged" -> [dfsS bbLdsRandStaged graph]
         "graph" -> [dfs bbLdsRand graph]

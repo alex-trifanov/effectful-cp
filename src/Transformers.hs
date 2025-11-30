@@ -15,7 +15,7 @@ import Effects.Algebra
 import Effects.Core (Sub, (:+:) (..))
 import Effects.NonDet (NonDet, fail, try, pattern (:|:))
 import Effects.Solver (SolverE)
-import Effects.Transformer (TransformerE (..), initS, initT, leftS, leftT, nextS, nextT, rightS, rightT, solS, solT)
+import Effects.Transformer (TransformerE (..), initS, leftS, nextS, rightS, solS)
 import Eval
 import Solver (Solver (..))
 import System.Random

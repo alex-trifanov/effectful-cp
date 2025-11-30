@@ -11,10 +11,10 @@ module Eval where
 
 import Control.Monad.Free (Free (..))
 import Effects.Algebra
-import Effects.Core ((:+:) (..), pattern Other2)
-import Effects.NonDet (NonDet (..), fail, pattern Fail, pattern (:|:))
+import Effects.Core ((:+:) (..))
+import Effects.NonDet (NonDet (..), fail)
 import Effects.Solver (SolverE (..), runSolver, solve)
-import Effects.Transformer (TransformerE (..), initT, leftS, nextT, rightS, solT, solS, nextS, initS)
+import Effects.Transformer (TransformerE (..), leftS, rightS, solS, nextS, initS)
 import FD.OvertonFD (OvertonFD)
 import Queues (Queue (..))
 import Solver (Solver (..))

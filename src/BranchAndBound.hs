@@ -60,10 +60,7 @@ path x y d
   | x == y = pure d
   | otherwise =
       disj
-        [ dynamic
-            ( fd_objective >>= \o ->
-                pure (o @> (d + d' - 1) /\ (path z y (d + d')))
-            )
+        [ dynamic fd_objective >>= \o -> (o @> (d + d' - 1) /\ (path z y (d + d')))
         | (z, d') <- edge x
         ]
 
